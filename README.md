@@ -147,9 +147,9 @@ tail -f /var/log/maxscale/maxscale.log
 ## <span id=step9>使用kingshard配置读写分离</span>
 除了MaxScale,还可以使用kingshard配置读写分离.  
 kingshard的GitHub主页有比较详细的安装步骤:  
-('https://github.com/flike/kingshard/blob/master/doc/KingDoc/kingshard_install_document.md')
+(https://github.com/flike/kingshard/blob/master/doc/KingDoc/kingshard_install_document.md)
 以及配置文件的说明:  
-('https://github.com/flike/kingshard/blob/master/doc/KingDoc/how_to_use_kingshard.md')  
+(https://github.com/flike/kingshard/blob/master/doc/KingDoc/how_to_use_kingshard.md)  
 在kingshard的bin目录中启动kingshard,通过`-config`选项指定配置文件路径,例:
 ``` bash
 /usr/local/go/src/github.com/flike/kingshard/bin/kingshard -config=/etc/kingshard.yaml
