@@ -2,20 +2,22 @@
 环境:ubuntu 18.04(虚拟机),mysql5.7
 
 
-主要步骤:
-1. 配置mysql主库
-2. 配置mysql从库
-3. 在主库中创建用户供从库用于复制
-4. 获取主库的二进制文件坐标
-5. 备份主库数据,恢复到从库中
-6. 在从库中配置主库的相关信息
-7. 测试主从复制
-8. 使用MaxScale配置读写分离
-9. 使用MaxScale配置读写分离
-10. 测试读写分离
+主要步骤:  
+<a href="#step1">1. 配置mysql主库</a>  
+<a href="#step2">2. 配置mysql从库</a>  
+<a href="#step3">3. 在主库中创建用户供从库用于复制</a>  
+<a href="#step4">4. 获取主库的二进制文件坐标</a>  
+<a href="#step5">5. 备份主库数据,恢复到从库中</a>  
+<a href="#step6">6. 在从库中配置主库的相关信息</a>  
+<a href="#step7">7. 测试主从复制</a>  
+<a href="#step8">8. 使用MaxScale配置读写分离</a>  
+<a href="#step9">9. 使用MaxScale配置读写分离</a>  
+<a href="#step10">10. 测试读写分离</a>  
+<a href="#step11">11. 发现的问题</a>  
+<a href="#step10">12. 参考资料</a>  
 
 
-## 配置mysql主库
+## <span id=step1>配置mysql主库</span>
 - 启用二进制日志功能,在my.cnf文件,加入如下配置:
 ``` bash
 log_bin = /var/log/mysql/mysql-bin.log 
@@ -40,11 +42,11 @@ show variables like '%skip-networking%';
 sudo service mysql restart
 ```
 
-## 配置mysql从库
+## <span id=step2>配置mysql从库</span>
 对于从库,只需要在`my.cnf`文件里面配置`server-id`就可以了,其他设置是可选的.  
 官方建议从库开启`log_bin`,二进制日志可用于数据备份以及从mysql故障中恢复数据.  
 
-## 在主库中创建用户提供给从库用于复制
+## <span id=step3>在主库中创建用户提供给从库用于复制</span>
 主库必须提供给从库一个具有`replication slave`权限的账号给从库用于复制,多个从库可使用同一个账号复制,也可为每一个从库单独创建用户
 ``` sql
 create user 'slave'@'%' identified by 'mypassword';
@@ -52,7 +54,7 @@ grant replication slave on *.* to 'slave'@'%';
 flush privileges;
 ```
 
-## 获取主库的二进制日志坐标
+## <span id=step4>获取主库的二进制日志坐标</span>
 二进制日志坐标是为了告诉从库,要从何处开始复制数据,坐标不正确,会导致主库和从库的数据出现不一致.  
 进行该操作前,必须确保主库无更新操作(`SELECT`,`UPDATE`,`INSERT`).可停止主库进程,或给主库加锁:
 ``` sql
@@ -65,7 +67,7 @@ show master status
 ```
 需要记住`File`和`Position`两个值,下面配置从库时要用到.
 
-## 备份主库数据,恢复到从库中
+## <span id=step5>备份主库数据,恢复到从库中</span>
 若当前主库是一个全新的库(没有任何数据),可跳过这一步骤.  
 将主库的数据恢复到从库是为了确保主从数据的一致性.  
 可使用`mydumper`进行备份和恢复,安装`mydumper`:
@@ -83,7 +85,7 @@ mydumper --database=db_name --outputdir=/home_to_user/db-backup --host=master_ho
 myloader --directory=/home_to_user/db-backup --database=db_name --host=127.0.0.1 --user=user --password=mypassword
 ```
 
-## 在从库中配置主库的连接信息
+## <span id=step6>在从库中配置主库的连接信息</span>
 在进行该操作前,必须释放掉上述步骤给mysql加的锁(在主库中执行):
 ``` sql
 unlock tables
@@ -108,7 +110,7 @@ show slave status
 ```
 若配置有误,`show slave status`会显示相关的错误信息.
 
-## 测试主从复制
+## <span id=step7>测试主从复制</span>
 登录主库,更新任意一个表的某个字段,如:
 ``` sql
 update client set name = '测试主从复制2019-03-22 18:25:37' where id = 1;
@@ -119,7 +121,7 @@ select name from client where id = 1;
 ```
 从库中`client.name`的值与主库中`client.name`的值一致则主从复制配置成功.
 
-## 使用MaxScale配置读写分离
+## <span id=step8>使用MaxScale配置读写分离</span>
 - 从官网下载MaxScale(https://mariadb.com/downloads/#mariadb_platform-mariadb_maxscale),使用dpkg安装
 - 安装完成后,需要在主库中为maxscale创建数据库用户
 ``` sql
@@ -142,7 +144,7 @@ tail -f /var/log/maxscale/maxscale.log
 ```
 若启动失败,可通过```systemctl status maxscale```或中日志文件中查看错误信息.
 
-## 使用kingshard配置读写分离
+## <span id=step9>使用kingshard配置读写分离</span>
 除了MaxScale,还可以使用kingshard配置读写分离.  
 kingshard的GitHub主页有比较详细的安装步骤:  
 ('https://github.com/flike/kingshard/blob/master/doc/KingDoc/kingshard_install_document.md')
@@ -153,7 +155,7 @@ kingshard的GitHub主页有比较详细的安装步骤:
 /usr/local/go/src/github.com/flike/kingshard/bin/kingshard -config=/etc/kingshard.yaml
 ```
 
-## 测试读写分离
+## <span id=step10>测试读写分离</span>
 若读写分离配置正确,则所有的写操作都被转发到主库中,所有的读操作都被转发到从库中.  
 为了测试MaxScale或kingshard的读写分离配置正确,需在主库和从库中启用`general_log`选项,启用该选项可查询数据库中实时的sql语句.
 ``` sql
@@ -179,13 +181,13 @@ set global general_log=OFF
 ```
 
 
-## 发现的问题
+## <span id=step11>发现的问题</span>
 mysql8.0的命令行以及8.0版本的MySQLWorkbench无法连接到MaxScale和kingshard配置好的代理服务上(Mac环境,其他环境未测试).  
 应用程序中,jdbc驱动`5.1.x`和`8.0.x`版本均可正常连接.
 
-## 参考资料:
-- [Setting Up Binary Log File Position Based Replication]('https://dev.mysql.com/doc/refman/8.0/en/replication-howto.html')
-- [Setting up MariaDB MaxScale]('https://github.com/mariadb-corporation/MaxScale/blob/2.2/Documentation/Tutorials/MaxScale-Tutorial.md')
-- [Read/Write Splitting with MariaDB MaxScale]('https://github.com/mariadb-corporation/MaxScale/blob/2.2/Documentation/Tutorials/Read-Write-Splitting-Tutorial.md')
-- [kingshard简介]('https://github.com/flike/kingshard/blob/master/README_ZH.md')
+## <span id=step12>参考资料</span>
+- [Setting Up Binary Log File Position Based Replication](https://dev.mysql.com/doc/refman/8.0/en/replication-howto.html)
+- [Setting up MariaDB MaxScale](https://github.com/mariadb-corporation/MaxScale/blob/2.2/Documentation/Tutorials/MaxScale-Tutorial.md)
+- [Read/Write Splitting with MariaDB MaxScale](https://github.com/mariadb-corporation/MaxScale/blob/2.2/Documentation/Tutorials/Read-Write-Splitting-Tutorial.md)
+- [kingshard简介](https://github.com/flike/kingshard/blob/master/README_ZH.md)
 
