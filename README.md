@@ -6,15 +6,14 @@
 <a href="#step1">1. 配置mysql主库</a>  
 <a href="#step2">2. 配置mysql从库</a>  
 <a href="#step3">3. 在主库中创建用户供从库用于复制</a>  
-<a href="#step4">4. 获取主库的二进制文件坐标</a>  
-<a href="#step5">5. 备份主库数据,恢复到从库中</a>  
-<a href="#step6">6. 在从库中配置主库的相关信息</a>  
-<a href="#step7">7. 测试主从复制</a>  
-<a href="#step8">8. 使用MaxScale配置读写分离</a>  
-<a href="#step9">9. 使用MaxScale配置读写分离</a>  
-<a href="#step10">10. 测试读写分离</a>  
-<a href="#step11">11. 发现的问题</a>  
-<a href="#step10">12. 参考资料</a>  
+<a href="#step5">4. 备份主库数据,恢复到从库中</a>  
+<a href="#step6">5. 在从库中配置主库的相关信息</a>  
+<a href="#step7">6. 测试主从复制</a>  
+<a href="#step8">7. 使用MaxScale配置读写分离</a>  
+<a href="#step9">8. 使用MaxScale配置读写分离</a>  
+<a href="#step10">9. 测试读写分离</a>  
+<a href="#step11">10. 发现的问题</a>  
+<a href="#step10">11. 参考资料</a>  
 
 
 ## <span id=step1>配置mysql主库</span>
@@ -31,15 +30,15 @@ server-id = 10
 innodb_flush_log_at_trx_commit = 1
 sync_binlog = 1
 ```
-- 确保主库的`skip-networking`选项为关闭状态,否则从库将无法与主库通信
+- 确保主库的`skip_networking`选项为关闭状态,否则从库将无法与主库通信
 可在主库中查看该值的设置:
 ``` sql
-show variables like '%skip-networking%';
+show variables like '%skip_networking%';
 ``` 
 若为`ON`,需要在my.cnf中将其设置为`OFF`
 - 重启mysql服务
 ``` sql
-sudo service mysql restart
+sudo systemctrl restart mysql
 ```
 
 ## <span id=step2>配置mysql从库</span>
@@ -54,53 +53,33 @@ grant replication slave on *.* to 'slave'@'%';
 flush privileges;
 ```
 
-## <span id=step4>获取主库的二进制日志坐标</span>
-二进制日志坐标是为了告诉从库,要从何处开始复制数据,坐标不正确,会导致主库和从库的数据出现不一致.  
-进行该操作前,必须确保主库无更新操作(`SELECT`,`UPDATE`,`INSERT`).可停止主库进程,或给主库加锁:
-``` sql
-flush tables with read lock
-```
-给主库加锁后,不要退出mysql客户端,避免连接断开后,锁被释放掉  
-获取二进制日志坐标:
-``` sql
-show master status
-```
-需要记住`File`和`Position`两个值,下面配置从库时要用到.
-
-## <span id=step5>备份主库数据,恢复到从库中</span>
-若当前主库是一个全新的库(没有任何数据),可跳过这一步骤.  
-将主库的数据恢复到从库是为了确保主从数据的一致性.  
-可使用`mydumper`进行备份和恢复,安装`mydumper`:
+## <span id=step4>备份主库数据,恢复到从库中</span> 
+在从库中使用`mysqldump`备份主库数据:  
 ``` bash
-sudo apt install mydumper
-```
-备份主库数据(可在从库的服务器上进行操作):
-``` bash
-mydumper --database=db_name --outputdir=/home_to_user/db-backup --host=master_host --user=user --password=mypassword --no-locks
-```
-加上`no-locks`选项是因为上一步骤已经给数据库加锁了,mydumper不需要重新加锁.
-
-恢复主库数据到从库中(在从库的服务器上进行):
-``` bash
-myloader --directory=/home_to_user/db-backup --database=db_name --host=127.0.0.1 --user=user --password=mypassword
+#--master-data选项会在备份时给数据库加锁
+#同时,在备份生成的dbname.sql中包含主库的二进制日志坐标信息
+mysqldump -uroot -p -h192.168.199.157 --master-data dbname > dbname.sql #将192.168.199.157替换为主库ip
 ```
 
-## <span id=step6>在从库中配置主库的连接信息</span>
-在进行该操作前,必须释放掉上述步骤给mysql加的锁(在主库中执行):
-``` sql
-unlock tables
+在从库中恢复主库的数据:  
+``` bash
+mysql -uroot -p dbname < dbname.sql
 ```
-配置主库信息(在从库中执行):
+
+## <span id=step5>在从库中配置主库的连接信息</span>  
+在从库中配置主库连接信息:
 ``` sql
+#在从库中执行
 change master to 
 master_host='master hostname or ip address', -- 替换为主库的域名或ip
 master_user='replication_user_name', -- 替换为主库中创建的具有replication slave的账号
-master_password='replication_password', -- 替换为上述账号的密码
-master_log_file='recorded_log_file_name', -- 主库的二进制日志坐标信息
-master_log_pos=record_log_postion; -- 主库的二进制日志坐标信息
+master_password='replication_password'; -- 替换为上述账号的密码
+-- 使用带--master-data选项的mysqldump命令备份的数据库文件中已经包含了master_log_file和master_log_pos这两项配置的信息,
+-- 从库恢复主库的数据时,已经修改了这两个配置的值,这里可以不用重复设置
+-- master_log_file='recorded_log_file_name', -- 主库的二进制日志坐标信息
+-- master_log_pos=record_log_postion; -- 主库的二进制日志坐标信息
 ```
-`master_log_file`和`master_log_pos`分别对应主库二进制日志坐标的`File`和`Position`
-完成后,运行以下命令,从库便开始从主库复制数据
+完成后,从库中执行以下sql,开始主从复制:  
 ``` sql
 start slave
 ``` 
@@ -110,7 +89,7 @@ show slave status
 ```
 若配置有误,`show slave status`会显示相关的错误信息.
 
-## <span id=step7>测试主从复制</span>
+## <span id=step6>测试主从复制</span>
 登录主库,更新任意一个表的某个字段,如:
 ``` sql
 update client set name = '测试主从复制2019-03-22 18:25:37' where id = 1;
@@ -121,7 +100,7 @@ select name from client where id = 1;
 ```
 从库中`client.name`的值与主库中`client.name`的值一致则主从复制配置成功.
 
-## <span id=step8>使用MaxScale配置读写分离</span>
+## <span id=step7>使用MaxScale配置读写分离</span>
 - 从官网下载MaxScale(https://mariadb.com/downloads/#mariadb_platform-mariadb_maxscale),使用dpkg安装
 - 安装完成后,需要在主库中为maxscale创建数据库用户
 ``` sql
@@ -144,7 +123,7 @@ tail -f /var/log/maxscale/maxscale.log
 ```
 若启动失败,可通过```systemctl status maxscale```或中日志文件中查看错误信息.
 
-## <span id=step9>使用kingshard配置读写分离</span>
+## <span id=step8>使用kingshard配置读写分离</span>
 除了MaxScale,还可以使用kingshard配置读写分离.  
 kingshard的GitHub主页有比较详细的安装步骤:  
 (https://github.com/flike/kingshard/blob/master/doc/KingDoc/kingshard_install_document.md)
@@ -155,7 +134,7 @@ kingshard的GitHub主页有比较详细的安装步骤:
 /usr/local/go/src/github.com/flike/kingshard/bin/kingshard -config=/etc/kingshard.yaml
 ```
 
-## <span id=step10>测试读写分离</span>
+## <span id=step9>测试读写分离</span>
 若读写分离配置正确,则所有的写操作都被转发到主库中,所有的读操作都被转发到从库中.  
 为了测试MaxScale或kingshard的读写分离配置正确,需在主库和从库中启用`general_log`选项,启用该选项可查询数据库中实时的sql语句.
 ``` sql
@@ -181,11 +160,11 @@ set global general_log=OFF
 ```
 
 
-## <span id=step11>发现的问题</span>
+## <span id=step10>发现的问题</span>
 mysql8.0的命令行以及8.0版本的MySQLWorkbench无法连接到MaxScale和kingshard配置好的代理服务上(Mac环境,其他环境未测试).  
 应用程序中,jdbc驱动`5.1.x`和`8.0.x`版本均可正常连接.
 
-## <span id=step12>参考资料</span>
+## <span id=step11>参考资料</span>
 - [Setting Up Binary Log File Position Based Replication](https://dev.mysql.com/doc/refman/8.0/en/replication-howto.html)
 - [Setting up MariaDB MaxScale](https://github.com/mariadb-corporation/MaxScale/blob/2.2/Documentation/Tutorials/MaxScale-Tutorial.md)
 - [Read/Write Splitting with MariaDB MaxScale](https://github.com/mariadb-corporation/MaxScale/blob/2.2/Documentation/Tutorials/Read-Write-Splitting-Tutorial.md)
